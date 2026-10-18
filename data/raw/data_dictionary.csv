@@ -1,0 +1,86 @@
+file_name,column_name,data_type,description,business_definition,nullable,primary_or_foreign_key,allowed_values_or_constraints,derivation_rule
+trades.csv,trade_id,STRING,Unique stable primary key identifier for the trade record,Canonical institutional trade ticket ID,NO,PRIMARY_KEY,Pattern: TRD-2025-XXXXX,Direct system sequence
+trades.csv,trade_date,DATE,Trade execution date in ISO YYYY-MM-DD,Contractual business execution date,NO,NONE,2025-01-01 to 2025-12-31 (Weekdays only),Execution date
+trades.csv,trade_timestamp_utc,TIMESTAMP,Exact execution timestamp in UTC,Point-in-time timestamp when order filled,NO,NONE,ISO 8601 UTC string,Front-office OMS capture
+trades.csv,booking_timestamp_utc,TIMESTAMP,Timestamp when trade entered middle/back office systems,Operational system ingestion timestamp,NO,NONE,ISO 8601 UTC string >= trade_timestamp,System ingestion log
+trades.csv,product_type,STRING,Financial asset class product code,High-level instrument taxonomy,NO,NONE,"FX_SPOT, FX_FORWARD, GOVERNMENT_BOND, CORPORATE_BOND, EQUITY, INTEREST_RATE_SWAP",Product master
+trades.csv,instrument_id,STRING,Foreign key pointing to instruments.csv,Unique financial instrument identifier,NO,FOREIGN_KEY,Matches instruments.instrument_id,Reference link
+trades.csv,counterparty_id,STRING,Foreign key pointing to counterparties.csv,Institutional client or dealer counterparty,NO,FOREIGN_KEY,Matches counterparties.counterparty_id,Reference link
+trades.csv,trading_desk,STRING,Internal trading desk responsible for trade,Organizational business unit,NO,NONE,Desks per product master,Internal trade hierarchy
+trades.csv,trade_direction,STRING,Direction of trade from reporting bank perspective,Trade side (BUY or SELL),NO,NONE,"BUY, SELL",Trader execution ticket
+trades.csv,buy_currency,STRING,ISO 4217 code of currency purchased,Purchased leg currency for FX/Bonds,YES,NONE,"ISO 3-letter currency code (EUR, USD, GBP, etc.)",Trade terms
+trades.csv,sell_currency,STRING,ISO 4217 code of currency sold,Sold leg currency for FX/Bonds,YES,NONE,ISO 3-letter currency code,Trade terms
+trades.csv,currency,STRING,Primary trade/settlement denomination currency,Single reporting currency,NO,NONE,ISO 3-letter currency code,Instrument settlement currency
+trades.csv,notional_amount,"DECIMAL(18,2)",Contractual notional principal monetary amount,Trade face value or principal amount,NO,NONE,Positive monetary amount,Trade execution ticket
+trades.csv,trade_price,"DECIMAL(18,5)","Executed unit price, FX exchange rate, or bond clean price",Financial transaction execution rate/price,NO,NONE,Positive numeric price/rate,Market fill price
+trades.csv,trade_status,STRING,Current lifecycle status of trade ticket,Middle-office operational status,NO,NONE,"CONFIRMED, EXECUTED, CANCELLED, AMENDED, SETTLED",State machine transition
+trades.csv,expected_settlement_date,DATE,Contractual settlement due date calculated via calendar lag,Value date when exchange of value is due,NO,NONE,ISO YYYY-MM-DD business date,"add_business_days(trade_date, lag)"
+trades.csv,actual_settlement_date,DATE,Actual business date when trade settled successfully,Depository confirmed settlement date,YES,NONE,ISO YYYY-MM-DD (Null if unsettled/pending),Populated on settlement success
+trades.csv,settlement_status,STRING,High-level operational settlement status of the trade,Consolidated trade settlement health,NO,NONE,"SETTLED, FAILED, PENDING, PARTIALLY_SETTLED, NOT_APPLICABLE",Derived from settlement attempts
+trades.csv,trade_source_system,STRING,Identifier of originating front-office or routing system,Source OMS/EMS gateway,NO,NONE,"MUREX_FX, CALYPSO_RATES, TRADEWEB_CREDIT, BLOOMBERG_FIT, FIDESSA_EQUITIES, CHARLES_RIVER_CRD, MANUAL_OPS_PORTAL",Originating message header
+trades.csv,sales_trader_id,STRING,Internal synthetic sales trader badge identifier,Executing internal personnel ID,NO,NONE,TRD-USR-XXX,Front office badge
+trades.csv,created_at_utc,TIMESTAMP,Record creation timestamp in operational repository,Audit trail timestamp,NO,NONE,ISO 8601 UTC string,System timestamp
+trades.csv,updated_at_utc,TIMESTAMP,Record last modification timestamp in operational repository,Audit trail timestamp,NO,NONE,ISO 8601 UTC string,System timestamp
+settlements.csv,settlement_id,STRING,Unique primary key for settlement instruction record,Depository instruction identifier,NO,PRIMARY_KEY,Pattern: SET-2025-XXXXXX,Instruction sequence
+settlements.csv,trade_id,STRING,Foreign key pointing to trades.csv,Underlying trade ticket ID,NO,FOREIGN_KEY,Matches trades.trade_id,Relational reference
+settlements.csv,settlement_attempt_number,INTEGER,"Sequential attempt index for trade settlement (1, 2, 3...)",Retry counter for settlement matching,NO,NONE,"1, 2, 3",Attempt iteration counter
+settlements.csv,settlement_date,DATE,Date on which settlement attempt was submitted to venue,Attempt execution date,NO,NONE,ISO YYYY-MM-DD,Attempt schedule date
+settlements.csv,expected_settlement_date,DATE,Contractual due date for settlement,Target settlement value date,NO,NONE,ISO YYYY-MM-DD,From trades.expected_settlement_date
+settlements.csv,settlement_currency,STRING,ISO 4217 settlement payment currency code,Cash settlement currency,NO,NONE,ISO 3-letter currency code,From instrument master
+settlements.csv,expected_settlement_amount,"DECIMAL(18,2)",Contractual cash settlement amount expected,Anticipated net cash flow,NO,NONE,Positive numeric amount,Trade notional * price / formula
+settlements.csv,actual_settlement_amount,"DECIMAL(18,2)",Actual cash settled across depository network,Realized net cash flow,NO,NONE,Zero on fail; matches expected on success,Depository settlement confirmation
+settlements.csv,settlement_status,STRING,Outcome status of settlement attempt,Attempt state,NO,NONE,"SETTLED, FAILED, PENDING, PARTIALLY_SETTLED",Depository message MT548/camt.054
+settlements.csv,settlement_method,STRING,Settlement clearing mechanism,Risk reduction settlement model,NO,NONE,"DVP, PVP, FREE_OF_PAYMENT, NET_CASH_SETTLEMENT, BILATERAL_GROSS_PAYMENT",Product convention
+settlements.csv,settlement_location_or_system,STRING,"Depository, clearinghouse, or payment network",Settlement venue,NO,NONE,"CLS_BANK, DTCC_NSCC, FEDWIRE_SECURITIES, EUROCLEAR_BANK, CLEARSTREAM_BANKING, CHIPS_USD, SWIFT_GPI_NETWORK",Static routing rules
+settlements.csv,settlement_failure_reason,STRING,Standardized failure code when attempt fails,Depository exception code,YES,NONE,"SSI_MISMATCH, INSUFFICIENT_SECURITIES, INSUFFICIENT_FUNDS, COUNTERPARTY_UNRESPONSIVE, DEPOSITORY_CUTOFF_MISSED, LATE_MATCHING (Null on SETTLED)",Depository MT548 reason
+settlements.csv,instruction_status,STRING,Messaging status of settlement instruction,SWIFT instruction state,NO,NONE,"ACKNOWLEDGED, MATCHED, UNMATCHED, REJECTED, CANCELLED",SWIFT message state
+settlements.csv,instruction_reference,STRING,Synthetic SWIFT MT541/543 or pacs message reference,Unique transaction reference,NO,NONE,Standard instruction syntax,Gateway sequence
+settlements.csv,counterparty_id,STRING,Foreign key pointing to counterparties.csv,Clearing counterparty,NO,FOREIGN_KEY,Matches counterparties.counterparty_id,Relational reference
+settlements.csv,record_timestamp_utc,TIMESTAMP,Instruction creation/update timestamp in UTC,Depository processing timestamp,NO,NONE,ISO 8601 UTC string,System timestamp
+exceptions.csv,exception_id,STRING,Unique primary key for operational exception incident,Exception tracking incident ID,NO,PRIMARY_KEY,Pattern: EXP-2025-XXXXXX,Incident sequence
+exceptions.csv,trade_id,STRING,Foreign key pointing to trades.csv,Trade experiencing exception,NO,FOREIGN_KEY,Matches trades.trade_id,Relational reference
+exceptions.csv,settlement_id,STRING,Nullable foreign key pointing to settlements.csv,Linked failed settlement attempt,YES,FOREIGN_KEY,Matches settlements.settlement_id (Null for booking issues),Relational link on settlement fail
+exceptions.csv,exception_type,STRING,Operational taxonomy code of exception,Exception classification,NO,NONE,"SETTLEMENT_FAILURE, BOOKING_DISCREPANCY, CONFIRMATION_MISMATCH, SSI_DEFICIENCY, RECONCILIATION_BREAK, PRICE_TOLERANCE_EXCEEDED, SANCTION_SCREENING_HOLD",Ops monitor trigger
+exceptions.csv,exception_category,STRING,High-level operational functional domain,Operations department domain,NO,NONE,"SETTLEMENT, BOOKING, CONFIRMATIONS, REFERENCE_DATA, RECONCILIATION, COMPLIANCE",Functional domain mapping
+exceptions.csv,root_cause_code,STRING,Root Cause Analysis (RCA) standardized code,Underlying operational failure cause,NO,NONE,"RC_SSI_OUTDATED, RC_INSUFFICIENT_SECURITIES, RC_INSUFFICIENT_LIQUIDITY, RC_MANUAL_DATA_ENTRY, RC_CONFIRMATION_ECONOMIC_MISMATCH, RC_DEPOSITORY_CUTOFF_MISSED, RC_INTERNAL_MESSAGE_DROPPED, RC_SANCTION_NAME_FALSE_POSITIVE",Investigator RCA assignment
+exceptions.csv,root_cause_description,STRING,Narrative explanation of operational failure mechanism,Detailed incident root cause description,NO,NONE,Descriptive narrative,RCA catalog
+exceptions.csv,severity,STRING,Priority and risk tier of exception,Operational risk severity tier,NO,NONE,"LOW, MEDIUM, HIGH, CRITICAL",Rule based on notional and impact
+exceptions.csv,detected_at_utc,TIMESTAMP,Timestamp when exception condition was detected,Monitoring detection timestamp,NO,NONE,ISO 8601 UTC string,Rule engine event time
+exceptions.csv,assigned_team,STRING,Operational group assigned to investigate and resolve,Responsible operations unit,NO,NONE,"SETTLEMENTS_OPS, CONFIRMATIONS_TEAM, STATIC_DATA_TEAM, RECONCILIATIONS_UNIT, MIDDLE_OFFICE_TRADE_SUPPORT, RISK_COMPLIANCE",Triage assignment
+exceptions.csv,resolution_status,STRING,Current lifecycle status of exception ticket,Workflow state,NO,NONE,"RESOLVED, IN_PROGRESS, ESCALATED, PENDING_CLIENT_RESPONSE, CLOSED_UNRESOLVED",Ticket workflow status
+exceptions.csv,opened_at_utc,TIMESTAMP,Timestamp when investigation ticket was formally opened,SLA clock start timestamp,NO,NONE,ISO 8601 UTC string >= detected_at,Workflow ticket open
+exceptions.csv,resolved_at_utc,TIMESTAMP,Timestamp when exception was resolved and validated,SLA clock stop timestamp,YES,NONE,ISO 8601 UTC string (Null if open),Workflow ticket resolve
+exceptions.csv,resolution_action,STRING,Remediation action taken to clear the exception,Operational corrective action,YES,NONE,"SSI_UPDATED_RESUBMITTED, TRADE_AMENDED_IN_OMS, AFFIRMATION_MATCHED_MANUALLY, SECURITIES_BORROW_EXECUTED, COMPLIANCE_CLEARED_FALSE_POSITIVE, BILATERAL_PAIR_OFF_AGREED (Null if open)",Remediation log
+exceptions.csv,sla_target_hours,INTEGER,Contractual/policy operational SLA resolution window in hours,SLA threshold limit,NO,NONE,"4 (CRITICAL), 8 (HIGH), 24 (MEDIUM), 48 (LOW)",SLA policy matrix
+exceptions.csv,sla_breached,BOOLEAN,Deterministic indicator if resolution time exceeded SLA target,SLA compliance flag,NO,NONE,"TRUE, FALSE",(resolved_at or observation_end - opened_at) > sla_target
+exceptions.csv,reopened_flag,BOOLEAN,Indicates if exception recurred after initial closure,Quality rework indicator,NO,NONE,"TRUE, FALSE",Incident audit trail
+counterparties.csv,counterparty_id,STRING,Unique primary key for counterparty entity,Institutional client identifier,NO,PRIMARY_KEY,Pattern: CP-XXX,Entity master sequence
+counterparties.csv,counterparty_name,STRING,Fictional institutional business legal name,Legal entity name,NO,NONE,Institutional names pool,Entity master
+counterparties.csv,counterparty_type,STRING,Institutional sector classification,Counterparty sector,NO,NONE,"INVESTMENT_BANK, ASSET_MANAGER, HEDGE_FUND, PENSION_FUND, CORPORATE_TREASURY, SOVEREIGN_WEALTH_FUND",KYC onboarding data
+counterparties.csv,home_country,STRING,ISO 3166-1 alpha-2 country of domicile,Jurisdiction of incorporation,NO,NONE,"US, GB, DE, FR, JP, SG, CH, CA, etc.",KYC data
+counterparties.csv,operating_region,STRING,Global trading region,Geographic supervisory zone,NO,NONE,"AMER, EMEA, APAC",Organizational taxonomy
+counterparties.csv,risk_rating,STRING,Ordinal credit and operational risk grade,Counterparty risk assessment,NO,NONE,"LOW, MEDIUM, HIGH, VERY_HIGH",Internal risk model
+counterparties.csv,onboarding_status,STRING,Operational onboarding readiness status,KYC / operational onboarding state,NO,NONE,"ACTIVE, PROBATION, RESTRICTED, PENDING_REVIEW",KYC status
+counterparties.csv,settlement_instruction_status,STRING,Health status of Standard Settlement Instructions,SSI static integrity flag,NO,NONE,"VERIFIED, EXPIRED, PENDING_AMENDMENT, INCOMPLETE",SSI static master
+counterparties.csv,active_flag,BOOLEAN,Flag indicating whether counterparty is currently active,Entity active flag,NO,NONE,"TRUE, FALSE",Entity master
+instruments.csv,instrument_id,STRING,Unique primary key for financial instrument,Security / contract identifier,NO,PRIMARY_KEY,Pattern: INST-[PROD]-[CODE],Instrument master sequence
+instruments.csv,instrument_type,STRING,Granular financial instrument classification,Product type code,NO,NONE,"FX_SPOT_PAIR, FX_FORWARD_CONTRACT, GOVERNMENT_BOND, CORPORATE_BOND, COMMON_STOCK, INTEREST_RATE_SWAP",Product taxonomy
+instruments.csv,instrument_name,STRING,Descriptive instrument title,Market description,NO,NONE,Descriptive text string,Security master
+instruments.csv,asset_class,STRING,Broad financial asset class,Portfolio asset class,NO,NONE,"FOREIGN_EXCHANGE, FIXED_INCOME, EQUITIES, RATES",Asset class taxonomy
+instruments.csv,base_currency,STRING,ISO 4217 base currency of instrument,Primary currency,NO,NONE,ISO 3-letter currency code,Contract specifications
+instruments.csv,quote_currency,STRING,ISO 4217 quote currency (for FX pairs),Secondary currency,YES,NONE,ISO 3-letter currency code (Null for bonds/equities),Contract specifications
+instruments.csv,settlement_currency,STRING,ISO 4217 cash settlement currency,Payment currency,NO,NONE,ISO 3-letter currency code,Contract specifications
+instruments.csv,market_or_region,STRING,Primary exchange or geographic market,Trading venue / market,NO,NONE,"US, UK, EU, JP, APAC, GLOBAL",Market directory
+instruments.csv,standard_settlement_lag_business_days,INTEGER,Standard business-day settlement lag (T+N),Settlement convention lag,NO,NONE,"1 (T+1), 2 (T+2), 22-260 (Forwards)",Market standard conventions
+instruments.csv,market_calendar,STRING,Holiday calendar used for business-day calculations,Financial calendar rule,NO,NONE,"FED_US, TARGET2, UK_BANK_HOLIDAY, TOKYO_BOJ, GLOBAL_FX",Calendar convention
+instruments.csv,active_flag,BOOLEAN,Flag indicating instrument is actively tradeable,Tradability flag,NO,NONE,"TRUE, FALSE",Security master
+known_data_quality_issues.csv,issue_id,STRING,Unique tracking ID for seeded data-quality defect,Defect catalog ID,NO,PRIMARY_KEY,Pattern: DQ-XXX,Defect sequence
+known_data_quality_issues.csv,file_name,STRING,Target file where anomaly was injected,Dataset location,NO,NONE,"trades.csv, settlements.csv",Target table
+known_data_quality_issues.csv,primary_key_column,STRING,Primary key column name in target table,Entity key pointer,NO,NONE,"trade_id, settlement_id",Schema definition
+known_data_quality_issues.csv,primary_key_value,STRING,Primary key value identifying affected row,Target row identifier,NO,NONE,Exact key value,Injected record key
+known_data_quality_issues.csv,column_name,STRING,Target column containing the anomalous value,Attribute name,NO,NONE,Column name,Target field
+known_data_quality_issues.csv,issue_type,STRING,Categorical classification of the defect,DQ defect taxonomy,NO,NONE,"TRAILING_WHITESPACE, LOWERCASE_INCONSISTENCY, NEGATIVE_TIME_LAG_NTP_ANOMALY, PENNY_ROUNDING_DISCREPANCY, MALFORMED_SWIFT_REFERENCE",Defect rule
+known_data_quality_issues.csv,original_canonical_value,STRING,Clean canonical value prior to fault injection,Expected value,NO,NONE,String representation,Audit log
+known_data_quality_issues.csv,injected_faulty_value,STRING,Faulty value present in the raw dataset,Observed value,NO,NONE,String representation,Injected value
+known_data_quality_issues.csv,business_impact,STRING,Explanation of downstream operational/reporting impact,Business consequence,NO,NONE,Descriptive text,Risk assessment
+known_data_quality_issues.csv,recommended_remediation,STRING,Data engineering fix or ETL cleaning rule,Remediation rule,NO,NONE,SQL/Python cleaning expression,ETL transformation specification

@@ -1,0 +1,34 @@
+================================================================================
+TRADE OPERATIONS PLATFORM: AUTOMATED DATA QUALITY AUDIT REPORT
+================================================================================
+Execution Timestamp (UTC): 2026-10-18T04:01:08.956957+00:00
+Overall Status:            PASSED
+Total Checks Executed:     15
+Passed Checks:             15
+Failed Critical Checks:    0
+Warnings:                  0
+--------------------------------------------------------------------------------
+Check Name                                 Status     Details
+--------------------------------------------------------------------------------
+Trade Row Count                            PASSED     Observed 50,000 trades (Expected 50,000)
+Trade PK Uniqueness                        PASSED     0 duplicate trade_ids found
+FK Trades -> Instruments                   PASSED     0 orphaned instrument references
+FK Trades -> Counterparties                PASSED     0 orphaned counterparty references
+FK Settlements -> Trades                   PASSED     0 orphaned settlement records
+FK Exceptions -> Trades                    PASSED     0 orphaned exception records
+FK Exceptions -> Settlements               PASSED     0 orphaned linked settlements
+SETTLED Trades Date Populated              PASSED     0 SETTLED trades missing actual date
+Unsettled Actual Date Is Null              PASSED     0 unsettled trades have actual date
+Failed Attempts Have Reason                PASSED     0 failed attempts missing failure reason
+Settled Attempts Reason Is Null            PASSED     0 settled attempts have failure reason populated
+Cash Settlement Amount Reconciliation      PASSED     0 settlements have cash variance > $0.05
+Weekend Trade Exclusion                    PASSED     0 trades executed on Saturday or Sunday
+Resolved Exceptions Timestamp Populated    PASSED     0 resolved tickets missing resolution timestamp
+Unresolved Exceptions Timestamp Null       PASSED     0 open backlog tickets have fake resolution timestamp
+================================================================================
+ANALYTICAL SAFETY ASSESSMENT:
+  - Relational Integrity:        SAFE (100% foreign key and primary key consistency)
+  - Financial Metrics & Failure: SAFE (Grain-accurate calculations for trades and settlement attempts)
+  - SLA & Backlog Analytics:     SAFE (Deterministic timeline and timestamp validity)
+  - Seeded Test Defects:         ISOLATED (19 documented edge cases cataloged for pipeline testing)
+================================================================================

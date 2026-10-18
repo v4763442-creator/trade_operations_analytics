@@ -1,0 +1,147 @@
+{
+  "project_name": "Trade Operations Intelligence & Exception Monitoring Platform",
+  "generation_timestamp_utc": "2026-10-18T03:34:22.432744+00:00",
+  "random_seed": 42,
+  "observation_period": {
+    "start_date": "2025-01-01",
+    "end_date": "2025-12-31"
+  },
+  "file_manifest": {
+    "trades_csv": {
+      "rows": 50000,
+      "columns": [
+        "trade_id",
+        "trade_date",
+        "trade_timestamp_utc",
+        "booking_timestamp_utc",
+        "product_type",
+        "instrument_id",
+        "counterparty_id",
+        "trading_desk",
+        "trade_direction",
+        "buy_currency",
+        "sell_currency",
+        "currency",
+        "notional_amount",
+        "trade_price",
+        "trade_status",
+        "expected_settlement_date",
+        "actual_settlement_date",
+        "settlement_status",
+        "trade_source_system",
+        "sales_trader_id",
+        "created_at_utc",
+        "updated_at_utc"
+      ]
+    },
+    "settlements_csv": {
+      "rows": 52385,
+      "columns": [
+        "settlement_id",
+        "trade_id",
+        "settlement_attempt_number",
+        "settlement_date",
+        "expected_settlement_date",
+        "settlement_currency",
+        "expected_settlement_amount",
+        "actual_settlement_amount",
+        "settlement_status",
+        "settlement_method",
+        "settlement_location_or_system",
+        "settlement_failure_reason",
+        "instruction_status",
+        "instruction_reference",
+        "counterparty_id",
+        "record_timestamp_utc"
+      ]
+    },
+    "exceptions_csv": {
+      "rows": 5060,
+      "columns": [
+        "exception_id",
+        "trade_id",
+        "settlement_id",
+        "exception_type",
+        "exception_category",
+        "root_cause_code",
+        "root_cause_description",
+        "severity",
+        "detected_at_utc",
+        "assigned_team",
+        "resolution_status",
+        "opened_at_utc",
+        "resolved_at_utc",
+        "resolution_action",
+        "sla_target_hours",
+        "sla_breached",
+        "reopened_flag"
+      ]
+    },
+    "counterparties_csv": {
+      "rows": 150,
+      "columns": [
+        "counterparty_id",
+        "counterparty_name",
+        "counterparty_type",
+        "home_country",
+        "operating_region",
+        "risk_rating",
+        "onboarding_status",
+        "settlement_instruction_status",
+        "active_flag"
+      ]
+    },
+    "instruments_csv": {
+      "rows": 160,
+      "columns": [
+        "instrument_id",
+        "instrument_type",
+        "instrument_name",
+        "asset_class",
+        "base_currency",
+        "quote_currency",
+        "settlement_currency",
+        "market_or_region",
+        "standard_settlement_lag_business_days",
+        "market_calendar",
+        "active_flag"
+      ]
+    },
+    "known_dq_issues_csv": {
+      "rows": 19,
+      "columns": [
+        "issue_id",
+        "file_name",
+        "primary_key_column",
+        "primary_key_value",
+        "column_name",
+        "issue_type",
+        "original_canonical_value",
+        "injected_faulty_value",
+        "business_impact",
+        "recommended_remediation"
+      ]
+    },
+    "data_dictionary_csv": {
+      "rows": 85,
+      "columns": [
+        "file_name",
+        "column_name",
+        "data_type",
+        "description",
+        "business_definition",
+        "nullable",
+        "primary_or_foreign_key",
+        "allowed_values_or_constraints",
+        "derivation_rule"
+      ]
+    }
+  },
+  "validation_summary": {
+    "overall_status": "PASSED",
+    "critical_error_count": 0,
+    "warning_count": 0,
+    "critical_errors": [],
+    "warnings": []
+  }
+}

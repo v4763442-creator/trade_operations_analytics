@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.venv/
+venv/
+env/
+
+# SQLite runtime artifacts (app.py builds it automatically from data/raw/ on initial launch)
+database/*.db
+database/*.db-wal
+database/*.db-shm
+
+# Streamlit local state
+.streamlit/
