@@ -632,26 +632,36 @@ class AnalyticsEngine:
         with self.db_manager.get_connection() as conn:
             return pd.read_sql_query(query, conn)
 
-    def get_root_cause_distribution(self) -> pd.DataFrame:
+    def get_root_cause_distribution(self, product_types: Optional[List[str]] = None) -> pd.DataFrame:
         """Distribution of operational root causes across exception categories."""
-        query = """
+        join_clause = ""
+        where_clause = ""
+        if product_types:
+            join_clause = "JOIN trades t ON exceptions.trade_id = t.trade_id"
+            where_clause = f"WHERE t.product_type IN ({','.join(repr(x) for x in product_types)})"
+        query = f"""
             SELECT 
-                exception_category,
-                root_cause_code,
-                root_cause_description,
+                exceptions.exception_category,
+                exceptions.root_cause_code,
+                exceptions.root_cause_description,
                 COUNT(*) AS incident_count,
-                SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) AS critical_count,
-                SUM(CASE WHEN sla_breached = 1 OR sla_breached = 'TRUE' THEN 1 ELSE 0 END) AS sla_breached_count
+                SUM(CASE WHEN exceptions.severity = 'CRITICAL' THEN 1 ELSE 0 END) AS critical_count,
+                SUM(CASE WHEN exceptions.sla_breached = 1 OR exceptions.sla_breached = 'TRUE' THEN 1 ELSE 0 END) AS sla_breached_count
             FROM exceptions
-            GROUP BY exception_category, root_cause_code, root_cause_description
+            {join_clause}
+            {where_clause}
+            GROUP BY exceptions.exception_category, exceptions.root_cause_code, exceptions.root_cause_description
             ORDER BY incident_count DESC;
         """
         with self.db_manager.get_connection() as conn:
             return pd.read_sql_query(query, conn)
 
-    def get_source_system_errors(self) -> pd.DataFrame:
+    def get_source_system_errors(self, product_types: Optional[List[str]] = None) -> pd.DataFrame:
         """Booking and interface error rates by front-office source system."""
-        query = """
+        where_clause = "1=1"
+        if product_types:
+            where_clause = f"t.product_type IN ({','.join(repr(x) for x in product_types)})"
+        query = f"""
             SELECT 
                 t.trade_source_system,
                 COUNT(DISTINCT t.trade_id) AS total_trades,
@@ -661,6 +671,7 @@ class AnalyticsEngine:
                       COUNT(DISTINCT t.trade_id), 2) AS booking_error_rate_pct
             FROM trades t
             LEFT JOIN exceptions e ON t.trade_id = e.trade_id
+            WHERE {where_clause}
             GROUP BY t.trade_source_system
             ORDER BY booking_error_rate_pct DESC;
         """
@@ -954,62 +965,145 @@ def render_dashboard():
 
         where_clauses = ["1=1"]
         if prod_filter:
-            where_clauses.append(f"product_type IN ({','.join(repr(x) for x in prod_filter)})")
+            where_clauses.append(f"t.product_type IN ({','.join(repr(x) for x in prod_filter)})")
         if status_filter:
-            where_clauses.append(f"settlement_status IN ({','.join(repr(x) for x in status_filter)})")
-        if desk_filter:
-            where_clauses.append(f"trading_desk LIKE '%{desk_filter}%'")
+            where_clauses.append(f"t.settlement_status IN ({','.join(repr(x) for x in status_filter)})")
+        if desk_filter and desk_filter.strip():
+            where_clauses.append(f"t.trading_desk LIKE '%{desk_filter.strip()}%'")
         where_str = " AND ".join(where_clauses)
 
         with db_mgr.get_connection() as conn:
-            df_filtered = pd.read_sql_query(f"""
+            df_kpis = pd.read_sql_query(f"""
                 SELECT 
-                    product_type, settlement_status, COUNT(*) as trade_count,
-                    COALESCE(SUM(notional_amount), 0) as total_notional
-                FROM trades
+                    COUNT(*) as total_trades,
+                    COALESCE(SUM(t.notional_amount), 0) as total_notional,
+                    SUM(CASE WHEN t.settlement_status = 'SETTLED' THEN 1 ELSE 0 END) as settled_count,
+                    SUM(CASE WHEN t.settlement_status = 'FAILED' THEN 1 ELSE 0 END) as failed_count,
+                    SUM(CASE WHEN t.settlement_status = 'PENDING' THEN 1 ELSE 0 END) as pending_count
+                FROM trades t
+                WHERE {where_str};
+            """, conn)
+
+            kpi_total = int(df_kpis["total_trades"].iloc[0])
+            kpi_notional = float(df_kpis["total_notional"].iloc[0])
+            kpi_settled = int(df_kpis["settled_count"].iloc[0])
+            kpi_failed = int(df_kpis["failed_count"].iloc[0])
+            kpi_pending = int(df_kpis["pending_count"].iloc[0])
+            kpi_completed = kpi_settled + kpi_failed
+            kpi_fail_pct = (kpi_failed / kpi_completed * 100.0) if kpi_completed > 0 else 0.0
+
+            # 1. Monthly Settlement Performance Curve (Filtered)
+            df_trend = pd.read_sql_query(f"""
+                SELECT 
+                    strftime('%Y-%m', t.trade_date) AS month,
+                    COUNT(*) AS total_trades,
+                    SUM(CASE WHEN t.settlement_status = 'SETTLED' THEN 1 ELSE 0 END) AS settled_count,
+                    SUM(CASE WHEN t.settlement_status = 'FAILED' THEN 1 ELSE 0 END) AS failed_count,
+                    SUM(CASE WHEN t.settlement_status = 'PENDING' THEN 1 ELSE 0 END) AS pending_count,
+                    ROUND(100.0 * SUM(CASE WHEN t.settlement_status = 'FAILED' THEN 1 ELSE 0 END) / 
+                          NULLIF(SUM(CASE WHEN t.settlement_status IN ('SETTLED', 'FAILED') THEN 1 ELSE 0 END), 0), 2) AS fail_rate_pct
+                FROM trades t
                 WHERE {where_str}
-                GROUP BY product_type, settlement_status
+                GROUP BY strftime('%Y-%m', t.trade_date)
+                ORDER BY month ASC;
             """, conn)
 
-            df_attempts = pd.read_sql_query("""
+            # 2. Settlement Attempts Progression (Filtered)
+            df_attempts = pd.read_sql_query(f"""
                 SELECT 
-                    settlement_attempt_number, settlement_status, COUNT(*) as count
-                FROM settlements
-                GROUP BY settlement_attempt_number, settlement_status
-                ORDER BY settlement_attempt_number ASC;
+                    s.settlement_attempt_number, s.settlement_status, COUNT(*) as count
+                FROM settlements s
+                JOIN trades t ON s.trade_id = t.trade_id
+                WHERE {where_str}
+                GROUP BY s.settlement_attempt_number, s.settlement_status
+                ORDER BY s.settlement_attempt_number ASC;
             """, conn)
 
-            df_fail_reasons = pd.read_sql_query("""
+            # 3. Failed Attempts by Depository Venue & Failure Code (Filtered)
+            df_fail_reasons = pd.read_sql_query(f"""
                 SELECT 
-                    settlement_failure_reason, settlement_location_or_system, COUNT(*) as fails
-                FROM settlements
-                WHERE settlement_status = 'FAILED'
-                GROUP BY settlement_failure_reason, settlement_location_or_system
+                    COALESCE(s.settlement_failure_reason, 'UNKNOWN') as settlement_failure_reason, 
+                    s.settlement_location_or_system, 
+                    COUNT(*) as fails
+                FROM settlements s
+                JOIN trades t ON s.trade_id = t.trade_id
+                WHERE s.settlement_status = 'FAILED' AND {where_str}
+                GROUP BY s.settlement_failure_reason, s.settlement_location_or_system
                 ORDER BY fails DESC;
             """, conn)
 
-        # Settlement Attempts Waterfall
+            # 4. Filtered Summary Breakdown
+            df_filtered = pd.read_sql_query(f"""
+                SELECT 
+                    t.product_type, t.settlement_status, COUNT(*) as trade_count,
+                    COALESCE(SUM(t.notional_amount), 0) as total_notional
+                FROM trades t
+                WHERE {where_str}
+                GROUP BY t.product_type, t.settlement_status
+            """, conn)
+
+        # Dynamic KPI Summary Cards
+        k1, k2, k3, k4, k5 = st.columns(5)
+        k1.metric("Filtered Trades", f"{kpi_total:,}")
+        vol_str = f"${kpi_notional / 1e9:.2f}B" if kpi_notional >= 1e9 else f"${kpi_notional / 1e6:.1f}M"
+        k2.metric("Filtered Volume", vol_str)
+        k3.metric("Settled Trades", f"{kpi_settled:,}")
+        k4.metric("Failed Trades", f"{kpi_failed:,}", delta_color="inverse")
+        k5.metric("Failure Rate", f"{kpi_fail_pct:.2f}%", delta_color="inverse")
+
+        st.markdown("---")
+
+        # Dynamic Filtered Settlement Performance & Failure Rate Curve
+        st.markdown("##### **Settlement Performance & Failure Rate Curve Over Time (Filtered)**")
+        if not df_trend.empty and kpi_total > 0:
+            fig_trend = make_subplots(specs=[[{"secondary_y": True}]])
+            fig_trend.add_trace(
+                go.Bar(x=df_trend["month"], y=df_trend["total_trades"], name="Trade Volume", marker_color="#3B82F6", opacity=0.75),
+                secondary_y=False
+            )
+            fig_trend.add_trace(
+                go.Scatter(x=df_trend["month"], y=df_trend["fail_rate_pct"], name="Failure Rate (%)",
+                           mode="lines+markers", marker=dict(color="#EF4444", size=8), line=dict(width=3, color="#EF4444")),
+                secondary_y=True
+            )
+            fig_trend.update_layout(
+                height=340, margin=dict(l=20, r=20, t=30, b=20),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            fig_trend.update_yaxes(title_text="Trades Volume", secondary_y=False)
+            fig_trend.update_yaxes(title_text="Fail Rate (%)", secondary_y=True)
+            st.plotly_chart(fig_trend, use_container_width=True)
+        else:
+            st.warning("⚠️ No trade records match the active filter criteria. Please adjust your filters above.")
+
+        # Settlement Attempts Waterfall and Venue Breakdown (Both Filter-Responsive)
         s1, s2 = st.columns([5, 5])
         with s1:
-            st.markdown("##### **Settlement Attempts Progression (Retries Waterfall)**")
-            fig_att = px.bar(
-                df_attempts, x="settlement_attempt_number", y="count", color="settlement_status",
-                barmode="group",
-                color_discrete_map={"SETTLED": "#16A34A", "FAILED": "#DC2626", "PENDING": "#F59E0B"},
-                labels={"settlement_attempt_number": "Attempt Cycle", "count": "Instructions Submitted"}
-            )
-            fig_att.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20))
-            st.plotly_chart(fig_att, use_container_width=True)
+            st.markdown("##### **Settlement Attempts Progression (Retries Waterfall - Filtered)**")
+            if not df_attempts.empty:
+                fig_att = px.bar(
+                    df_attempts, x="settlement_attempt_number", y="count", color="settlement_status",
+                    barmode="group",
+                    color_discrete_map={"SETTLED": "#16A34A", "FAILED": "#DC2626", "PENDING": "#F59E0B"},
+                    labels={"settlement_attempt_number": "Attempt Cycle", "count": "Instructions Submitted"}
+                )
+                fig_att.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20))
+                st.plotly_chart(fig_att, use_container_width=True)
+            else:
+                st.info("No settlement attempts recorded for this selection.")
 
         with s2:
-            st.markdown("##### **Failed Attempts by Depository Venue & Failure Code**")
-            fig_fails = px.bar(
-                df_fail_reasons.head(10), x="fails", y="settlement_failure_reason", color="settlement_location_or_system",
-                orientation="h",
-                labels={"settlement_failure_reason": "Failure Reason", "fails": "Attempt Failures"}
-            )
-            fig_fails.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig_fails, use_container_width=True)
+            st.markdown("##### **Failed Attempts by Depository Venue & Failure Code (Filtered)**")
+            if not df_fail_reasons.empty:
+                fig_fails = px.bar(
+                    df_fail_reasons.head(10), x="fails", y="settlement_failure_reason", color="settlement_location_or_system",
+                    orientation="h",
+                    labels={"settlement_failure_reason": "Failure Reason", "fails": "Attempt Failures"}
+                )
+                fig_fails.update_layout(height=320, margin=dict(l=20, r=20, t=20, b=20), yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig_fails, use_container_width=True)
+            else:
+                st.success("✅ Zero failed settlement attempts for the selected filter criteria!")
 
         st.markdown("##### **Filtered Trade Volume & Value Overview**")
         st.dataframe(
@@ -1024,10 +1118,12 @@ def render_dashboard():
         st.markdown("<div class='main-header'>Root-Cause Analysis & Failure Attribution</div>", unsafe_allow_html=True)
         st.markdown("<div class='sub-header'>Evidence-based attribution across systems, operational disruption windows, and counterparty SSI health.</div>", unsafe_allow_html=True)
 
+        rca_prod_filter = st.multiselect("Filter Asset Class (Optional)", options=["FX_SPOT", "GOVERNMENT_BOND", "CORPORATE_BOND", "FX_FORWARD", "EQUITY", "INTEREST_RATE_SWAP"], default=[], key="rca_prod_filter")
+
         r1, r2 = st.columns([6, 4])
         with r1:
             st.markdown("##### **Root Cause Distribution by Exception Category**")
-            df_rc = analytics.get_root_cause_distribution()
+            df_rc = analytics.get_root_cause_distribution(product_types=rca_prod_filter)
             fig_sunburst = px.sunburst(
                 df_rc, path=["exception_category", "root_cause_code"], values="incident_count",
                 color="incident_count", color_continuous_scale="Teal"
@@ -1037,7 +1133,7 @@ def render_dashboard():
 
         with r2:
             st.markdown("##### **Front-Office Booking Error Attribution**")
-            df_src = analytics.get_source_system_errors()
+            df_src = analytics.get_source_system_errors(product_types=rca_prod_filter)
             fig_src = px.bar(
                 df_src, x="trade_source_system", y="booking_error_rate_pct",
                 text="booking_error_rate_pct", color="booking_error_rate_pct",
